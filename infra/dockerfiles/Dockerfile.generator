@@ -1,0 +1,9 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+COPY requirements.txt ./
+RUN pip install --no-cache-dir kafka-python python-dotenv
+COPY generator ./generator
+COPY infra/scripts ./infra/scripts
+ENV PYTHONPATH=/app
+CMD ["sh", "-c", "python infra/scripts/wait_for_kafka.py && python -m generator.sensor_generator"]

@@ -1,0 +1,10 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+COPY requirements.txt ./
+RUN pip install --no-cache-dir kafka-python requests python-dotenv
+COPY generator ./generator
+COPY streaming ./streaming
+COPY infra/scripts ./infra/scripts
+ENV PYTHONPATH=/app
+CMD ["sh", "-c", "python infra/scripts/wait_for_kafka.py && python -m streaming.stream_processor"]
