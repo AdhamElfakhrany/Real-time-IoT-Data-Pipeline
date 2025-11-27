@@ -1,0 +1,10 @@
+.git
+.gitignore
+.env
+.venv_sql
+__pycache__
+data
+logs
+docs
+*.md
+*.bat

@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.env
+.venv/
+venv/
+.env.local
+.env.*
+
+# Data
+/data/raw/
+/data/processed/
+!/data/raw/.gitkeep
+!/data/processed/.gitkeep
+*.log
+*.csv
+*.parquet
+
+# IDE
+.vscode/
+.idea/
+.DS_Store
+
+# Misc
+*.egg-info/
+*.sqlite3
