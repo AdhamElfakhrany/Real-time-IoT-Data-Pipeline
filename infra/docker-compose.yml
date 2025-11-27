@@ -1,0 +1,122 @@
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.1
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.1
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.6.1
+    depends_on:
+      - kafka
+    ports:
+      - "8081:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: PLAINTEXT://kafka:29092
+
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: iot_data
+      MYSQL_USER: iot_user
+      MYSQL_PASSWORD: iot_password
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-prootpassword" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  generator:
+    build:
+      context: ..
+      dockerfile: infra/dockerfiles/Dockerfile.generator
+    depends_on:
+      - kafka
+    environment:
+      KAFKA_BROKER: kafka:29092
+      KAFKA_RAW_TOPIC: iot.raw
+      GEN_INTERVAL_SECONDS: 1
+      GEN_DEVICE_COUNT: 10
+    command: [ "python", "-m", "generator.sensor_generator", "--sink", "file,kafka", "--interval", "1", "--max-events", "0" ]
+    volumes:
+      - ../data:/app/data
+
+  stream-processor:
+    build:
+      context: ..
+      dockerfile: infra/dockerfiles/Dockerfile.streaming
+    depends_on:
+      - kafka
+    environment:
+      KAFKA_BROKER: kafka:29092
+      KAFKA_RAW_TOPIC: iot.raw
+      KAFKA_PROCESSED_TOPIC: iot.processed
+      KAFKA_ALERT_TOPIC: iot.alerts
+      TEMP_ALERT_THRESHOLD: 50
+      HUMIDITY_ALERT_THRESHOLD: 25
+    command: [ "python", "-m", "streaming.stream_processor" ]
+
+  batch-runner:
+    build:
+      context: ..
+      dockerfile: infra/dockerfiles/Dockerfile.batch
+    depends_on:
+      kafka:
+        condition: service_started
+      mysql:
+        condition: service_healthy
+    volumes:
+      - ../data:/app/data
+    environment:
+      RAW_DATA_PATH: data/raw
+      PROCESSED_DATA_PATH: data/processed
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_NAME: iot_data
+      DB_USER: iot_user
+      DB_PASSWORD: iot_password
+    command: [ "sh", "-c", "python -m batch.migrate; while true; do python -m batch.batch_etl --input data/raw/sensor_log.jsonl --output-dir data/processed --output-format parquet; sleep 10; done" ]
+
+  dashboard:
+    build:
+      context: ..
+      dockerfile: infra/dockerfiles/Dockerfile.dashboard
+    depends_on:
+      - mysql
+    volumes:
+      - ../data:/app/data
+    ports:
+      - "8501:8501"
+    environment:
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_NAME: iot_data
+      DB_USER: iot_user
+      DB_PASSWORD: iot_password
+      PROCESSED_DATA_PATH: data/processed
+      DASHBOARD_REFRESH_SECONDS: 5
+
+volumes:
+  mysql_data:
